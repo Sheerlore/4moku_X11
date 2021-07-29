@@ -75,10 +75,10 @@ int main()
                           WhitePixel(d, DefaultScreen(d)));
   ww = XCreateSimpleWindow(d, w,
                            WINDOW_PADDING, WINDOW_PADDING,
-                          //  WINDOW_W - WINDOW_PADDING * 2 + 1,
-                          //  WINDOW_H - WINDOW_PADDING * 2 + 1, 1,
-                          SQUARE_W * FIELD_W_NUM,
-                          SQUARE_H * FIELD_H_NUM, 1,
+                           //  WINDOW_W - WINDOW_PADDING * 2 + 1,
+                           //  WINDOW_H - WINDOW_PADDING * 2 + 1, 1,
+                           SQUARE_W * FIELD_W_NUM,
+                           SQUARE_H * FIELD_H_NUM, 1,
                            BlackPixel(d, DefaultScreen(d)),
                            WhitePixel(d, DefaultScreen(d)));
 
@@ -281,7 +281,7 @@ int communication(CONN_ROLE role)
                 write(nsofd, buf, n);
 
                 write(1, buf, n);
-                write(1, " :SERVER(OWN)\n", 15);
+                write(1, " <SERVER(OWN)\n", 15);
 
                 update_lock_flag(wi, hi);
                 step++;
@@ -296,7 +296,7 @@ int communication(CONN_ROLE role)
                 write(sofd, buf, n);
 
                 write(1, buf, n);
-                write(1, " :CLIENT(OWN)\n", 15);
+                write(1, " <CLIENT(OWN)\n", 15);
 
                 update_lock_flag(wi, hi);
                 step++;
@@ -312,7 +312,6 @@ int communication(CONN_ROLE role)
     if (role == SERVER && FD_ISSET(nsofd, &mask))
     {
       n = read(nsofd, buf, BUFMAX);
-      printf("buf: %s\n", buf);
       write(1, "CLIENT> ", 8);
       if (strcmp(buf, "YOU-WIN") == 0)
       {
@@ -342,16 +341,19 @@ int communication(CONN_ROLE role)
           write(nsofd, "YOU-WIN\0", 9);
           break;
         }
+        if (result == (BLACK+WHITE)) {
+          write(sofd, "ERROR\0", 7);
+          break;
+        }
         step++;
       }
       bzero(buf, BUFMAX);
     }
 
-    // receive message from server 
+    // receive message from server
     if (role == CLIENT && FD_ISSET(sofd, &mask))
     {
       n = read(sofd, buf, BUFMAX);
-      printf("buf: %s\n", buf);
       write(1, "SERVER> ", 8);
 
       if (strcmp(buf, "YOU-WIN") == 0)
@@ -380,6 +382,10 @@ int communication(CONN_ROLE role)
         if (result == BLACK)
         {
           write(sofd, "YOU-WIN\0", 9);
+          break;
+        }
+        if (result == (BLACK+WHITE)) {
+          write(sofd, "ERROR\0", 7);
           break;
         }
         step++;
@@ -441,8 +447,24 @@ int check_field()
 {
   const int count_num = 4;
   int step;
-  int b_count, w_count;
+  int b_count, w_count, e_count;
   int hi, wi;
+
+  // Chack the field is full
+  e_count = 0;
+  for (wi = 0; wi < FIELD_W_NUM; wi++)
+  {
+    for (hi = 0; hi < FIELD_H_NUM; hi++)
+    {
+      if (s_flag[wi][hi] == EMPTY)
+        e_count++;
+    }
+  }
+  if (e_count == (FIELD_W_NUM * FIELD_H_NUM))
+  {
+    return BLACK + WHITE;
+  }
+
   // Check the horizontal direction
   for (hi = 0; hi < FIELD_H_NUM; hi++)
   {
@@ -490,6 +512,51 @@ int check_field()
     }
   }
   // Check the diagonally opposite right
+  for (wi = 0; wi < FIELD_W_NUM - (count_num - 1); wi++)
+  {
+    for (hi = 0; hi < FIELD_H_NUM - (count_num - 1); hi++)
+    {
+      step = 0;
+      b_count = w_count = 0;
+      while (step < count_num)
+      {
+        if (s_flag[wi + step][hi + step] == BLACK)
+          b_count++;
+        if (s_flag[wi + step][hi + step] == WHITE)
+          w_count++;
+        if (b_count > 0 && w_count > 0)
+          break;
+        step++;
+      }
+      if (b_count == count_num)
+        return BLACK;
+      if (w_count == count_num)
+        return WHITE;
+    }
+  }
   // Check the diagonally opposite left
+  for (wi = (count_num - 1); wi < FIELD_W_NUM; wi++)
+  {
+    for (hi = 0; hi < FIELD_H_NUM - (count_num - 1); hi++)
+    {
+      step = 0;
+      b_count = w_count = 0;
+      while (step < count_num)
+      {
+        if (s_flag[wi - step][hi + step] == BLACK)
+          b_count++;
+        if (s_flag[wi - step][hi + step] == WHITE)
+          w_count++;
+        if (b_count > 0 && w_count > 0)
+          break;
+        step++;
+      }
+      if (b_count == count_num)
+        return BLACK;
+      if (w_count == count_num)
+        return WHITE;
+    }
+  }
+
   return -1;
 }
