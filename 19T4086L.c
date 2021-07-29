@@ -31,9 +31,9 @@ static struct timeval tm;
 // Window Constant
 #define FIELD_W_NUM 7                                               // Number of Horizontal squares
 #define FIELD_H_NUM 6                                               // Number of Vertical squares
-const int WINDOW_W = 800;                                           // Window Width
-const int WINDOW_H = 700;                                           // Window Height
-const int WINDOW_PADDING = 50;                                      // Window padding
+const int WINDOW_W = 560;                                           // Window Width
+const int WINDOW_H = 480;                                           // Window Height
+const int WINDOW_PADDING = 40;                                      // Window padding
 const int SQUARE_W = (WINDOW_W - WINDOW_PADDING * 2) / FIELD_W_NUM; // Square width
 const int SQUARE_H = (WINDOW_H - WINDOW_PADDING * 2) / FIELD_H_NUM; // Square height
 typedef enum
@@ -63,7 +63,7 @@ int communication(CONN_ROLE role);
 int ctoi(char c);
 int put_koma(Display *d, Window w, GC gc, int wi, int hi, KOMA koma);
 int update_lock_flag(int wi, int hi);
-int check_field(); 
+int check_field();
 
 int main()
 {
@@ -75,8 +75,10 @@ int main()
                           WhitePixel(d, DefaultScreen(d)));
   ww = XCreateSimpleWindow(d, w,
                            WINDOW_PADDING, WINDOW_PADDING,
-                           WINDOW_W - WINDOW_PADDING * 2 + 1,
-                           WINDOW_H - WINDOW_PADDING * 2 + 1, 1,
+                          //  WINDOW_W - WINDOW_PADDING * 2 + 1,
+                          //  WINDOW_H - WINDOW_PADDING * 2 + 1, 1,
+                          SQUARE_W * FIELD_W_NUM,
+                          SQUARE_H * FIELD_H_NUM, 1,
                            BlackPixel(d, DefaultScreen(d)),
                            WhitePixel(d, DefaultScreen(d)));
 
@@ -99,7 +101,7 @@ int main()
   }
   x = 0;
   y = 0;
-  gap = 15;
+  gap = 10;
   step = 0;
 
   CONN_ROLE role;
@@ -299,8 +301,6 @@ int communication(CONN_ROLE role)
                 update_lock_flag(wi, hi);
                 step++;
               }
-            } else {
-              // error syori
             }
           }
         }
@@ -308,76 +308,89 @@ int communication(CONN_ROLE role)
       }
     }
 
-    // receive message
+    // receive message from client
     if (role == SERVER && FD_ISSET(nsofd, &mask))
     {
       n = read(nsofd, buf, BUFMAX);
+      printf("buf: %s\n", buf);
+      write(1, "CLIENT> ", 8);
       if (strcmp(buf, "YOU-WIN") == 0)
       {
         write(1, buf, n);
         write(1, "\n", 2);
         break;
       }
-      else if(strcmp(buf, "ERROR") == 0)
+
+      if (strcmp(buf, "ERROR") == 0)
       {
-        break;
-      }
-      else
-      { // PLACE-XY
-        write(1, "CLIENT: ", 8);
         write(1, buf, n);
         write(1, "\n", 2);
-        x_r = ctoi(buf[6]);
-        y_r = ctoi(buf[7]);
-        if (x_r != -1 && y_r != -1)
+        break;
+      }
+
+      write(1, buf, n);
+      write(1, "\n", 2);
+      x_r = ctoi(buf[6]);
+      y_r = ctoi(buf[7]);
+      if (x_r != -1 && y_r != -1)
+      {
+        put_koma(d, ww, gc, x_r, y_r, WHITE);
+        update_lock_flag(x_r, y_r);
+        result = check_field();
+        if (result == WHITE)
         {
-          put_koma(d, ww, gc, x_r, y_r, WHITE);
-          update_lock_flag(x_r, y_r);
-          result = check_field();
-          if(result == WHITE) {
-            write(nsofd, "YOU-WIN", 7);
-          }
-          step++;
+          write(nsofd, "YOU-WIN\0", 9);
+          break;
         }
+        step++;
       }
       bzero(buf, BUFMAX);
     }
+
+    // receive message from server 
     if (role == CLIENT && FD_ISSET(sofd, &mask))
     {
       n = read(sofd, buf, BUFMAX);
+      printf("buf: %s\n", buf);
+      write(1, "SERVER> ", 8);
+
       if (strcmp(buf, "YOU-WIN") == 0)
       {
         write(1, buf, n);
         write(1, "\n", 2);
         break;
       }
-      else if(strcmp(buf, "ERROR") == 0)
+
+      if (strcmp(buf, "ERROR") == 0)
       {
-        break;
-      }
-      else
-      { //PLACE-XY
-        write(1, "SERVER: ", 8);
         write(1, buf, n);
         write(1, "\n", 2);
-        x_r = ctoi(buf[6]);
-        y_r = ctoi(buf[7]);
-        if (x_r != -1 && y_r != -1)
+        break;
+      }
+
+      write(1, buf, n);
+      write(1, "\n", 2);
+      x_r = ctoi(buf[6]);
+      y_r = ctoi(buf[7]);
+      if (x_r != -1 && y_r != -1)
+      {
+        put_koma(d, ww, gc, x_r, y_r, BLACK);
+        update_lock_flag(x_r, y_r);
+        result = check_field();
+        if (result == BLACK)
         {
-          put_koma(d, ww, gc, x_r, y_r, BLACK);
-          update_lock_flag(x_r, y_r);
-          result = check_field();
-          if(result == BLACK) {
-            write(sofd, "YOU-WIN", 7);
-          }
-          step++;
+          write(sofd, "YOU-WIN\0", 9);
+          break;
         }
+        step++;
       }
       bzero(buf, BUFMAX);
     }
   }
-  if(role == SERVER) close(nsofd);
-  if(role == CLIENT) close(sofd);
+  if (role == SERVER)
+    close(nsofd);
+  if (role == CLIENT)
+    close(sofd);
 }
 
 // convert char to int
@@ -422,30 +435,61 @@ int update_lock_flag(int wi, int hi)
   }
 }
 
-
-// check 4moku 
+// check 4moku
 // return B or W or -1
-int check_field() {
-  int count_num = 4;
+int check_field()
+{
+  const int count_num = 4;
   int step;
   int b_count, w_count;
+  int hi, wi;
   // Check the horizontal direction
-  for(int hi = 0; hi < FIELD_H_NUM; hi++) {
-    for(int wi = 0; wi < FIELD_W_NUM - (count_num - 1); wi++) {
+  for (hi = 0; hi < FIELD_H_NUM; hi++)
+  {
+    for (wi = 0; wi < FIELD_W_NUM - (count_num - 1); wi++)
+    {
       step = 0;
       b_count = w_count = 0;
-      while(step < 4) {
-        if(s_flag[wi+step][hi] == BLACK) b_count++;
-        if(s_flag[wi+step][hi] == WHITE) w_count++;
-        if(b_count > 0 && w_count > 0) break;
+      while (step < count_num)
+      {
+        if (s_flag[wi + step][hi] == BLACK)
+          b_count++;
+        if (s_flag[wi + step][hi] == WHITE)
+          w_count++;
+        if (b_count > 0 && w_count > 0)
+          break;
         step++;
       }
-      if(b_count == 4) return BLACK;
-      if(w_count == 4) return WHITE;
+      if (b_count == count_num)
+        return BLACK;
+      if (w_count == count_num)
+        return WHITE;
     }
   }
-  return -1;
   // Check the vertical direction
+  for (wi = 0; wi < FIELD_W_NUM; wi++)
+  {
+    for (hi = 0; hi < FIELD_H_NUM - (count_num - 1); hi++)
+    {
+      step = 0;
+      b_count = w_count = 0;
+      while (step < count_num)
+      {
+        if (s_flag[wi][hi + step] == BLACK)
+          b_count++;
+        if (s_flag[wi][hi + step] == WHITE)
+          w_count++;
+        if (b_count > 0 && w_count > 0)
+          break;
+        step++;
+      }
+      if (b_count == count_num)
+        return BLACK;
+      if (w_count == count_num)
+        return WHITE;
+    }
+  }
   // Check the diagonally opposite right
   // Check the diagonally opposite left
+  return -1;
 }
