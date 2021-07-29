@@ -42,7 +42,7 @@ typedef enum
   WHITE,
   BLACK,
 } KOMA;
-int step; // even black, odd white
+static int step; // even black, odd white
 
 // Window Global var
 Display *d;
@@ -64,6 +64,7 @@ int ctoi(char c);
 int put_koma(Display *d, Window w, GC gc, int wi, int hi, KOMA koma);
 int update_lock_flag(int wi, int hi);
 int check_field();
+int check_frand(int x_r, int y_r, int step, CONN_ROLE target);
 
 int main()
 {
@@ -268,27 +269,32 @@ int communication(CONN_ROLE role)
           for (int wi = 0; wi < FIELD_W_NUM; wi++)
           {
             if (wi * SQUARE_W <= x && x <= (wi + 1) * SQUARE_W &&
-                hi * SQUARE_H <= y && y <= (hi + 1) * SQUARE_H &&
-                s_lock_flag[wi][hi] != 1)
+                hi * SQUARE_H <= y && y <= (hi + 1) * SQUARE_H)
             {
-              if (role == SERVER && step % 2 == 0)
+              if (role == SERVER)
               {
-                put_koma(d, ww, gc, wi, hi, BLACK);
+                if (s_lock_flag[wi][hi] != 1 && step % 2 == 0)
+                {
+                  put_koma(d, ww, gc, wi, hi, BLACK);
+                  update_lock_flag(wi, hi);
+                  step++;
+                }
                 // send to client
                 write(1, "        ", 8);
                 snprintf(buf, BUFMAX, "PLACE-%d%d\0", wi, hi);
                 n = sizeof(buf);
                 write(nsofd, buf, n);
-
                 write(1, buf, n);
                 write(1, " <SERVER(OWN)\n", 15);
-
-                update_lock_flag(wi, hi);
-                step++;
               }
-              else if (role == CLIENT && step % 2 != 0)
+              else if (role == CLIENT)
               {
-                put_koma(d, ww, gc, wi, hi, WHITE);
+                if (s_lock_flag[wi][hi] != 1 && step % 2 != 0)
+                {
+                  put_koma(d, ww, gc, wi, hi, WHITE);
+                  update_lock_flag(wi, hi);
+                  step++;
+                }
                 // send to server
                 write(1, "        ", 8);
                 snprintf(buf, BUFMAX, "PLACE-%d%d\0", wi, hi);
@@ -297,9 +303,6 @@ int communication(CONN_ROLE role)
 
                 write(1, buf, n);
                 write(1, " <CLIENT(OWN)\n", 15);
-
-                update_lock_flag(wi, hi);
-                step++;
               }
             }
           }
@@ -333,19 +336,25 @@ int communication(CONN_ROLE role)
       y_r = ctoi(buf[7]);
       if (x_r != -1 && y_r != -1)
       {
+        if (check_frand(x_r, y_r, step, CLIENT))
+        {
+          write(nsofd, "ERROR\0", 7);
+          break;
+        }
         put_koma(d, ww, gc, x_r, y_r, WHITE);
         update_lock_flag(x_r, y_r);
+        step++;
         result = check_field();
         if (result == WHITE)
         {
           write(nsofd, "YOU-WIN\0", 9);
           break;
         }
-        if (result == (BLACK+WHITE)) {
-          write(sofd, "ERROR\0", 7);
+        if (result == (BLACK + WHITE))
+        {
+          write(nsofd, "ERROR\0", 7);
           break;
         }
-        step++;
       }
       bzero(buf, BUFMAX);
     }
@@ -376,19 +385,25 @@ int communication(CONN_ROLE role)
       y_r = ctoi(buf[7]);
       if (x_r != -1 && y_r != -1)
       {
+        if (check_frand(x_r, y_r, step, SERVER))
+        {
+          write(sofd, "ERROR\0", 7);
+          break;
+        }
         put_koma(d, ww, gc, x_r, y_r, BLACK);
         update_lock_flag(x_r, y_r);
+        step++;
         result = check_field();
         if (result == BLACK)
         {
           write(sofd, "YOU-WIN\0", 9);
           break;
         }
-        if (result == (BLACK+WHITE)) {
+        if (result == (BLACK + WHITE))
+        {
           write(sofd, "ERROR\0", 7);
           break;
         }
-        step++;
       }
       bzero(buf, BUFMAX);
     }
@@ -460,7 +475,7 @@ int check_field()
         e_count++;
     }
   }
-  if (e_count == (FIELD_W_NUM * FIELD_H_NUM))
+  if (e_count == 0)
   {
     return BLACK + WHITE;
   }
@@ -559,4 +574,43 @@ int check_field()
   }
 
   return -1;
+}
+
+// fraud prevension Error check
+int check_frand(int x_r, int y_r, int step, CONN_ROLE target)
+{
+  if (target == SERVER)
+  {
+    if (step % 2 == 0 && s_flag[x_r][y_r] != EMPTY)
+    {
+      printf("second\n");
+      return 1;
+    }
+    if (step % 2 == 0 && s_lock_flag[x_r][y_r] == 1)
+    {
+      printf("first\n");
+      return 1;
+    }
+    if (step % 2 != 0)
+    {
+      printf("third\n");
+      return 1;
+    }
+  }
+  else if (target == CLIENT)
+  {
+    if (step % 2 != 0 && s_flag[x_r][y_r] != EMPTY)
+    {
+      return 1;
+    }
+    if (step % 2 != 0 && s_lock_flag[x_r][y_r] == 1)
+    {
+      return 1;
+    }
+    if (step % 2 == 0)
+    {
+      return 1;
+    }
+  }
+  return 0;
 }
