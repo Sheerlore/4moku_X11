@@ -50,7 +50,16 @@ Window w, ww;
 XEvent event;
 Font f;
 GC gc;
-XGCValues gv;
+unsigned long MyColor(Display *d, char *color)
+{
+  Colormap cmap;
+  XColor c0, c1;
+  cmap = DefaultColormap(d, 0);
+  XAllocNamedColor(d, cmap, color, &c1, &c0);
+  return (c1.pixel);
+}
+
+unsigned long green, black, white;
 
 static int x, y;                                  // mouse x, y
 static int x_r, y_r;                              // receive x, y
@@ -68,6 +77,11 @@ int check_frand(int x_r, int y_r, int step, CONN_ROLE target);
 
 int main()
 {
+  x = 0;
+  y = 0;
+  gap = 10;
+  step = 0;
+  CONN_ROLE role;
 
   d = XOpenDisplay(NULL);
   w = XCreateSimpleWindow(d, RootWindow(d, 0),
@@ -82,6 +96,10 @@ int main()
                            SQUARE_H * FIELD_H_NUM, 1,
                            BlackPixel(d, DefaultScreen(d)),
                            WhitePixel(d, DefaultScreen(d)));
+
+  green = MyColor(d, "green");
+  black = MyColor(d, "black");
+  white = MyColor(d, "white");
 
   XSelectInput(d, ww, ButtonPressMask | ExposureMask);
   XMapWindow(d, w);
@@ -100,12 +118,7 @@ int main()
   {
     s_lock_flag[wi][FIELD_H_NUM - 1] = 0;
   }
-  x = 0;
-  y = 0;
-  gap = 10;
-  step = 0;
 
-  CONN_ROLE role;
   while (1)
   {
     printf("server: 1 client:2\n");
@@ -234,18 +247,32 @@ int communication(CONN_ROLE role)
       perror("select");
       exit(1);
     }
-
     if (XPending(d) != 0)
     {
       XNextEvent(d, &event);
       switch (event.type)
       {
       case Expose:
-        // Draw Field
         for (int hi = 0; hi < FIELD_H_NUM; hi++)
         {
           for (int wi = 0; wi < FIELD_W_NUM; wi++)
           {
+            // Draw Field
+            if (s_lock_flag[wi][hi] == 0 && s_flag[wi][hi] == EMPTY)
+            {
+              XSetForeground(d, gc, green);
+              XFillRectangle(d, ww, gc,
+                             wi * SQUARE_W, hi * SQUARE_H,
+                             SQUARE_W, SQUARE_H);
+            }
+            else if (s_flag[wi][hi] == EMPTY)
+            {
+              XSetForeground(d, gc, white);
+              XFillRectangle(d, ww, gc,
+                             wi * SQUARE_W, hi * SQUARE_H,
+                             SQUARE_W, SQUARE_H);
+            }
+            XSetForeground(d, gc, black);
             XDrawRectangle(d, ww, gc,
                            wi * SQUARE_W, hi * SQUARE_H,
                            SQUARE_W, SQUARE_H);
@@ -275,8 +302,8 @@ int communication(CONN_ROLE role)
               {
                 if (s_lock_flag[wi][hi] != 1 && step % 2 == 0)
                 {
-                  put_koma(d, ww, gc, wi, hi, BLACK);
                   update_lock_flag(wi, hi);
+                  put_koma(d, ww, gc, wi, hi, BLACK);
                   step++;
                 }
                 // send to client
@@ -291,8 +318,8 @@ int communication(CONN_ROLE role)
               {
                 if (s_lock_flag[wi][hi] != 1 && step % 2 != 0)
                 {
-                  put_koma(d, ww, gc, wi, hi, WHITE);
                   update_lock_flag(wi, hi);
+                  put_koma(d, ww, gc, wi, hi, WHITE);
                   step++;
                 }
                 // send to server
@@ -310,7 +337,6 @@ int communication(CONN_ROLE role)
         break;
       }
     }
-
     // receive message from client
     if (role == SERVER && FD_ISSET(nsofd, &mask))
     {
@@ -341,8 +367,8 @@ int communication(CONN_ROLE role)
           write(nsofd, "ERROR\0", 7);
           break;
         }
-        put_koma(d, ww, gc, x_r, y_r, WHITE);
         update_lock_flag(x_r, y_r);
+        put_koma(d, ww, gc, x_r, y_r, WHITE);
         step++;
         result = check_field();
         if (result == WHITE)
@@ -390,8 +416,8 @@ int communication(CONN_ROLE role)
           write(sofd, "ERROR\0", 7);
           break;
         }
-        put_koma(d, ww, gc, x_r, y_r, BLACK);
         update_lock_flag(x_r, y_r);
+        put_koma(d, ww, gc, x_r, y_r, BLACK);
         step++;
         result = check_field();
         if (result == BLACK)
@@ -429,6 +455,7 @@ int put_koma(Display *d, Window w, GC gc, int wi, int hi, KOMA koma)
 {
   if (koma == BLACK)
   {
+    XSetForeground(d, gc, black);
     XFillArc(d, ww, gc,
              wi * SQUARE_W + gap, hi * SQUARE_H + gap,
              SQUARE_W - gap * 2, SQUARE_H - gap * 2,
@@ -453,6 +480,31 @@ int update_lock_flag(int wi, int hi)
   if (hi != 0)
   {
     s_lock_flag[wi][hi - 1] = 0;
+  }
+  // update can put Field
+  for (int hi = 0; hi < FIELD_H_NUM; hi++)
+  {
+    for (int wi = 0; wi < FIELD_W_NUM; wi++)
+    {
+      if (s_lock_flag[wi][hi] == 0 && s_flag[wi][hi] == EMPTY)
+      {
+        XSetForeground(d, gc, green);
+        XFillRectangle(d, ww, gc,
+                       wi * SQUARE_W, hi * SQUARE_H,
+                       SQUARE_W, SQUARE_H);
+      }
+      else if(s_flag[wi][hi] == EMPTY)
+      {
+        XSetForeground(d, gc, white);
+        XFillRectangle(d, ww, gc,
+                       wi * SQUARE_W, hi * SQUARE_H,
+                       SQUARE_W, SQUARE_H);
+      }
+      XSetForeground(d, gc, black);
+      XDrawRectangle(d, ww, gc,
+                     wi * SQUARE_W, hi * SQUARE_H,
+                     SQUARE_W, SQUARE_H);
+    }
   }
 }
 
@@ -583,17 +635,14 @@ int check_frand(int x_r, int y_r, int step, CONN_ROLE target)
   {
     if (step % 2 == 0 && s_flag[x_r][y_r] != EMPTY)
     {
-      printf("second\n");
       return 1;
     }
     if (step % 2 == 0 && s_lock_flag[x_r][y_r] == 1)
     {
-      printf("first\n");
       return 1;
     }
     if (step % 2 != 0)
     {
-      printf("third\n");
       return 1;
     }
   }
